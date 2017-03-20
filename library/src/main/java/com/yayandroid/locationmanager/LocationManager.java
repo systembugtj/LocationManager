@@ -1,12 +1,13 @@
 package com.yayandroid.locationmanager;
 
-import android.app.Activity;
 import android.app.Dialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
+import com.yayandroid.locationmanager.configuration.LocationConfiguration;
 import com.yayandroid.locationmanager.constants.FailType;
 import com.yayandroid.locationmanager.constants.LogType;
 import com.yayandroid.locationmanager.constants.ProviderType;
@@ -18,17 +19,15 @@ import com.yayandroid.locationmanager.helper.PermissionManager;
 import com.yayandroid.locationmanager.provider.DefaultLocationProvider;
 import com.yayandroid.locationmanager.provider.GPServicesLocationProvider;
 import com.yayandroid.locationmanager.provider.LocationProvider;
+import com.yayandroid.locationmanager.view.LocationView;
 
 import java.util.List;
 
-/**
- * Created by Yahya Bayramoglu on 09/02/16.
- */
 public class LocationManager {
 
     private int locationFrom = ProviderType.NONE;
 
-    private Activity activity;
+    private LocationView locationView;
     private Dialog gpServicesDialog;
     private LocationReceiver listener;
     private LocationConfiguration configuration;
@@ -54,8 +53,8 @@ public class LocationManager {
      * This specifies on which activity this manager will run,
      * this also needs to be set before you attempt to get location
      */
-    public LocationManager on(Activity activity) {
-        this.activity = activity;
+    public LocationManager on(Context context) {
+        this.locationView = new LocationView(context);
         return this;
     }
 
@@ -75,7 +74,7 @@ public class LocationManager {
      */
     public LocationManager setLocationProvider(LocationProvider provider) {
         if (provider != null) {
-            provider.configure(activity, configuration);
+            provider.configure(locationView, configuration);
         }
 
         this.activeProvider = provider;
@@ -129,7 +128,7 @@ public class LocationManager {
         gpServicesSwitchTask.stop();
         gpServicesDialog = null;
         listener = null;
-        activity = null;
+        locationView = null;
         activeProvider = null;
         configuration = null;
     }
@@ -152,7 +151,7 @@ public class LocationManager {
      * Provide requestPermissionResult to manager so the it can handle RuntimePermission
      */
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        PermissionManager.onRequestPermissionsResult(activity, permissionListener, requestCode, permissions, grantResults);
+        PermissionManager.onRequestPermissionsResult(permissionListener, requestCode, permissions, grantResults);
     }
 
     /**
@@ -192,18 +191,17 @@ public class LocationManager {
     }
 
     private void get(boolean askForGPServices) {
-        if (activity == null)
-            throw new RuntimeException("You must specify on which activity this manager runs!");
+        if (locationView == null)
+            throw new RuntimeException("You must set a locationView!");
 
-        if (configuration.shouldNotUseGPServices()) {
+        if (configuration.gpServicesConfiguration() == null) {
             LogUtils.logI("Configuration requires not to use Google Play Services, " +
                     "so skipping that step to Default Location Providers", LogType.GENERAL);
             continueWithDefaultProviders();
             return;
         }
 
-        int gpServicesAvailability = GoogleApiAvailability.getInstance()
-                .isGooglePlayServicesAvailable(activity);
+        int gpServicesAvailability = LocationUtils.isGooglePlayServicesAvailable(locationView.getContext());
 
         if (gpServicesAvailability == ConnectionResult.SUCCESS) {
             LogUtils.logI("GooglePlayServices is available on device.", LogType.GENERAL);
@@ -212,21 +210,26 @@ public class LocationManager {
             LogUtils.logI("GooglePlayServices is NOT available on device.", LogType.IMPORTANT);
 
             if (askForGPServices) {
-                if (configuration.shouldAskForGPServices() &&
+                if (configuration.gpServicesConfiguration().askForGPServices() &&
                         GoogleApiAvailability.getInstance()
                                 .isUserResolvableError(gpServicesAvailability)) {
 
                     LogUtils.logI("Asking user to handle GooglePlayServices error...", LogType.GENERAL);
-                    gpServicesDialog = GoogleApiAvailability.getInstance()
-                            .getErrorDialog(activity, gpServicesAvailability,
-                                    RequestCode.GOOGLE_PLAY_SERVICES, new DialogInterface.OnCancelListener() {
-                                        @Override
-                                        public void onCancel(DialogInterface dialog) {
-                                            failed(FailType.GP_SERVICES_NOT_AVAILABLE);
-                                        }
-                                    });
+                    gpServicesDialog = LocationUtils.getGooglePlayServicesErrorDialog(locationView.getContext(),
+                          gpServicesAvailability, RequestCode.GOOGLE_PLAY_SERVICES, new DialogInterface.OnCancelListener() {
+                              @Override
+                              public void onCancel(DialogInterface dialog) {
+                                  failed(FailType.GP_SERVICES_NOT_AVAILABLE);
+                              }
+                          });
 
-                    gpServicesDialog.show();
+                    if (gpServicesDialog != null) {
+                        gpServicesDialog.show();
+                    } else {
+                        LogUtils.logI("GooglePlayServices error could've been resolved, but since LocationManager "
+                              + "is not running on an Activity, dialog cannot be displayed.", LogType.GENERAL);
+                        continueWithDefaultProviders();
+                    }
                 } else {
                     LogUtils.logI("Either GooglePlayServices error is not resolvable "
                             + "or the configuration doesn't wants us to bother user.", LogType.GENERAL);
@@ -246,7 +249,7 @@ public class LocationManager {
     }
 
     private void continueWithDefaultProviders() {
-        if (configuration.shouldUseOnlyGPServices()) {
+        if (configuration.defaultProviderConfiguration() == null) {
             LogUtils.logI("Because the configuration, we can only use GooglePlayServices, so we abort.", LogType.GENERAL);
             failed(FailType.GP_SERVICES_NOT_AVAILABLE);
         } else {
@@ -257,13 +260,19 @@ public class LocationManager {
 
     private void askForPermission(@ProviderType.Source int locationFrom) {
         this.locationFrom = locationFrom;
-
-        if (PermissionManager.hasPermissions(activity, configuration.getRequiredPermissions())) {
+        if (locationView.isContextExist() && PermissionManager.hasPermissions(locationView.getContext(), configuration
+              .requiredPermissions())) {
             locationPermissionGranted(true);
         } else {
-            LogUtils.logI("Asking for Runtime Permissions...", LogType.GENERAL);
-            PermissionManager.requestPermissions(activity, permissionListener,
-                    configuration.getRationalMessage(), configuration.getRequiredPermissions());
+            if (locationView.isActivityExist()) {
+                LogUtils.logI("Asking for Runtime Permissions...", LogType.GENERAL);
+                PermissionManager.requestPermissions(locationView.getActivity(), permissionListener,
+                      configuration.rationalMessage(), configuration.requiredPermissions());
+            } else {
+                LogUtils.logI("We don't have permissions and since LocationView is not an activity, cannot ask user to "
+                      + "give permission. Aborting.", LogType.GENERAL);
+                failed(FailType.PERMISSION_DENIED);
+            }
         }
     }
 
@@ -276,7 +285,7 @@ public class LocationManager {
 
         if (locationFrom == ProviderType.GOOGLE_PLAY_SERVICES) {
             setLocationProvider(new GPServicesLocationProvider());
-            gpServicesSwitchTask.delayed(configuration.getGPServicesWaitPeriod());
+            gpServicesSwitchTask.delayed(configuration.gpServicesConfiguration().gpServicesWaitPeriod());
         } else {
             // To ensure not to use same provider again!
             setLocationProvider(null);
@@ -321,7 +330,7 @@ public class LocationManager {
 
         @Override
         public void onPermissionsGranted(List<String> perms) {
-            if (perms.size() == configuration.getRequiredPermissions().length) {
+            if (perms.size() == configuration.requiredPermissions().length) {
                 LogUtils.logI("We have all required permission, moving on fetching location!", LogType.GENERAL);
                 locationPermissionGranted(false);
             } else {

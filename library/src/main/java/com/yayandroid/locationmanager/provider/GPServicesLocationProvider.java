@@ -35,7 +35,7 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
     @Override
     public void onResume() {
         if (!settingsDialogIsOn && googleApiClient != null &&
-                (isWaiting() || configuration.shouldKeepTracking())) {
+                (isWaiting() || configuration.keepTracking())) {
             googleApiClient.connect();
         }
     }
@@ -56,7 +56,7 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
     @Override
     public boolean requiresActivityResult() {
         // If we need to ask for settingsApi then we'll need to get onActivityResult callback
-        return configuration.shouldAskForSettingsApi();
+        return configuration.gpServicesConfiguration().askForSettingsApi();
     }
 
     @Override
@@ -68,12 +68,16 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
     public void get() {
         setWaiting(true);
 
-        googleApiClient = new GoogleApiClient.Builder(activity)
-                .addApi(LocationServices.API)
-                .addConnectionCallbacks(this)
-                .addOnConnectionFailedListener(this)
-                .build();
-        googleApiClient.connect();
+        if (locationView.isContextExist()) {
+            googleApiClient = new GoogleApiClient.Builder(locationView.getContext())
+                  .addApi(LocationServices.API)
+                  .addConnectionCallbacks(this)
+                  .addOnConnectionFailedListener(this)
+                  .build();
+            googleApiClient.connect();
+        } else {
+            failed(FailType.VIEW_DETACHED);
+        }
     }
 
     @Override
@@ -121,9 +125,9 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
             }
         }
 
-        if (configuration.shouldKeepTracking() || !locationIsAlreadyAvailable) {
+        if (configuration.keepTracking() || !locationIsAlreadyAvailable) {
             LogUtils.logI("Ask for location update...", LogType.IMPORTANT);
-            if (configuration.shouldAskForSettingsApi()) {
+            if (configuration.gpServicesConfiguration().askForSettingsApi()) {
                 LogUtils.logI("Asking for SettingsApi...", LogType.IMPORTANT);
                 askForSettingsApi();
             } else {
@@ -137,7 +141,7 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
 
     @Override
     public void onConnectionSuspended(int i) {
-        if (!configuration.shouldFailWhenConnectionSuspended() && googleApiClient != null) {
+        if (!configuration.gpServicesConfiguration().failOnConnectionSuspended() && googleApiClient != null) {
             LogUtils.logI("GoogleApiClient connection is suspended, try to connect again.", LogType.IMPORTANT);
             googleApiClient.connect();
         } else {
@@ -161,7 +165,7 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
         // Set waiting as false because we got at least one, even though we keep tracking user's location
         setWaiting(false);
 
-        if (!configuration.shouldKeepTracking()) {
+        if (!configuration.keepTracking()) {
             LogUtils.logI("We got location and no need to keep tracking, so location update is removed.", LogType.GENERAL);
             LocationServices.FusedLocationApi.removeLocationUpdates(googleApiClient, this);
         }
@@ -187,7 +191,11 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
                     // and check the result in onActivityResult().
                     LogUtils.logI("We need settingsApi to display dialog to switch required settings on, displaying the dialog...", LogType.GENERAL);
                     settingsDialogIsOn = true;
-                    status.startResolutionForResult(activity, RequestCode.SETTINGS_API);
+                    if (locationView.isActivityExist()) {
+                        status.startResolutionForResult(locationView.getActivity(), RequestCode.SETTINGS_API);
+                    } else {
+                        settingsApiFail(FailType.VIEW_DETACHED);
+                    }
                 } catch (IntentSender.SendIntentException e) {
                     LogUtils.logE("Error on displaying SettingsApi dialog, GP_SettingsApi failing...", LogType.IMPORTANT);
                     settingsApiFail(FailType.GP_SERVICES_SETTINGS_DIALOG);
@@ -204,20 +212,22 @@ public class GPServicesLocationProvider extends LocationProvider implements Loca
 
     private void askForSettingsApi() {
         LocationSettingsRequest settingsRequest = new LocationSettingsRequest.Builder()
-                .addLocationRequest(configuration.getLocationRequest())
+                .addLocationRequest(configuration.gpServicesConfiguration().locationRequest())
                 .build();
 
-        PendingResult<LocationSettingsResult> settingsResult = LocationServices.SettingsApi.checkLocationSettings(googleApiClient, settingsRequest);
+        PendingResult<LocationSettingsResult> settingsResult = LocationServices.SettingsApi
+              .checkLocationSettings(googleApiClient, settingsRequest);
         settingsResult.setResultCallback(this);
     }
 
     @SuppressWarnings("ResourceType")
     private void requestLocationUpdate() {
-        LocationServices.FusedLocationApi.requestLocationUpdates(googleApiClient, configuration.getLocationRequest(), this);
+        LocationServices.FusedLocationApi.requestLocationUpdates(googleApiClient,
+              configuration.gpServicesConfiguration().locationRequest(), this);
     }
 
     private void settingsApiFail(int failType) {
-        if (configuration.shouldFailWhenSettingsApiSuspended()) {
+        if (configuration.gpServicesConfiguration().failOnSettingsApiSuspended()) {
             failed(failType);
         } else {
             LogUtils.logE("Even though settingsApi failed, configuration requires moving on, " +
