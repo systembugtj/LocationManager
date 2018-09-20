@@ -22,8 +22,12 @@ android {
 }
 
 dependencies {
-    compile fileTree(dir: 'libs', include: ['*.jar'])
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
 
-    compile libraries.appCompat
-    compile libraries.googlePlayServices
+    implementation libraries.appCompat
+    implementation libraries.googlePlayServices
+
+    testImplementation libraries.junit
+    testImplementation libraries.mockito
+    testImplementation libraries.assertJ
 }
