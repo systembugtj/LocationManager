@@ -10,6 +10,9 @@ def repo_key = hasProperty('artifactory_key') ? artifactory_key : System.getenv(
 def VERSION_NAME = System.getenv('BUILD_NUMBER') ? System.getenv('BUILD_NUMBER') : "1.1.5"
 
 
+group = 'com.github.systembugtj'
+version = "1.1.5"
+
 android {
     compileSdkVersion versions.compileSdkVersion
     buildToolsVersion versions.buildToolsVersion
@@ -17,8 +20,8 @@ android {
     defaultConfig {
         minSdkVersion versions.minSdkVersion
         targetSdkVersion versions.targetSdkVersion
-        versionCode = Integer.parseInt(VERSION_CODE)
-        versionName = VERSION_NAME
+        versionCode = 10
+        versionName = version
     }
 
     buildTypes {

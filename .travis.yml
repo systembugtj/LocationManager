@@ -1,32 +1,26 @@
 language: android
-
-# installing Java 8 JDK is required to prevent getting "Unsupported major.minor version 52.0" error
 jdk:
   - oraclejdk8
 
 android:
+
   components:
     - tools
     - platform-tools
+    - extra-android-m2repository
     - build-tools-25.0.0
+
+    # The SDK version used to compile your project
     - android-25
 
+    # Additional components
     - extra-google-google_play_services
     - extra-google-m2repository
-    - extra-android-m2repository
+    - addon-google_apis-google-25
 
-  licenses:
-    - 'android-sdk-license-.+'
-
+    # Specify at least one system image,
+    # if you need to run emulator(s) during your tests
+    - sys-img-armeabi-v7a-android-22
+    - sys-img-x86-android-17
 script:
-  - ./gradlew clean check --stacktrace --no-daemon
-  - ./gradlew build jacocoTestReport assembleAndroidTest
-
-after_success:
-  - bash <(curl -s https://codecov.io/bash)
-
-sudo:
-  false
-
-notifications:
-  email: false
+  - ./gradlew assembleDebug
